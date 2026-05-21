@@ -22,7 +22,7 @@ class Camera:
         self.width, self.height = img.size
         self.fx = 0.5 * self.width / np.tan(0.5 * camera_angle_x)
         self.fy = self.fx
-        self.cx, self.cy = 400, 400
+        self.cx, self.cy = self.width / 2, self.height / 2
         self.c2w = np.array(self.camera_to_world, dtype=np.float64)
         self.w2c = np.linalg.inv(self.c2w)
 
@@ -34,7 +34,7 @@ def projection(p_world_point, camera: Camera):
     wp = np.array(p_world_point)
     world_point = np.append(wp, 1.0)
     p_world = np.array(world_point)
-    T_w2c = np.linalg.inv(camera.c2w)
+    T_w2c = camera.w2c
     focal = camera.fx
     p_camera = T_w2c @ p_world
     x_cam, y_cam, z_cam, _ = p_camera
@@ -44,23 +44,23 @@ def projection(p_world_point, camera: Camera):
     return u, v, depth
 
 # World point tests
-test_array = [[0, 0, 0], [0.5, 0, 0], [-0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]]
-
-draw = ImageDraw.Draw(img)
-size = 7
-
-for test in test_array:
-    u, v, depth = projection(test, camera_object)
-    if depth <= 0:
-        pass
-    x = round(u)
-    y = round(v)
-    if x > camera_object.width or y > camera_object.height:
-        pass
-    shape = [x - size, y - size, x + size, y + size]
-    draw.rectangle(shape, outline="red", width=2)
-
-# img.save("test_draw.png")
+# test_array = [[0, 0, 0], [0.5, 0, 0], [-0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]]
+#
+# draw = ImageDraw.Draw(img)
+# size = 7
+#
+# for test in test_array:
+#     u, v, depth = projection(test, camera_object)
+#     if depth <= 0:
+#         continue
+#     x = round(u)
+#     y = round(v)
+#     if x < 0 or x >= camera_object.width or y < 0 or y >= camera_object.height:
+#         continue
+#     shape = [x - size, y - size, x + size, y + size]
+#     # draw.rectangle(shape, outline="red", width=2)
+#
+# # img.save("test_draw.png")
 
 def alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
     dx = pixel_x - u
@@ -70,11 +70,39 @@ def alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
     alpha = weight * opacity
     return alpha
 
-print(alpha_at_pixel(475, 400, 400, 400, 25, 0.8))
-
 img_rgb = img.convert('RGB')
-rgb_array = np.array(img_rgb)
-frgb_array = np.array()
+rgb_array = np.array(img_rgb).astype(float) / 255.0
 
-print(rgb_array[10, 10])
+def draw_gaussian_splat(width, height, u, v, sigma_pixels, color, opacity):
+    radius = 3 * sigma_pixels
+    x_min = max(0, int(u - radius))
+    x_max = min(width - 1, int(u + radius))
+
+    y_min = max(0, int(v - radius))
+    y_max = min(height - 1, int(v + radius))
+    # pixels = img.load()
+    for x in range(x_min, x_max + 1):
+        for y in range(y_min, y_max + 1):
+            old_pixel = rgb_array[y, x]
+            alpha = alpha_at_pixel(x, y, u, v, sigma_pixels, opacity)
+            # new_pixel_x, new_pixel_y, new_pixel_z = (old_pixel * (1 - alpha) + color * alpha) * 255.0
+            new_pixel = old_pixel * (1 - alpha) + color * alpha
+            # rgb_array[y, x] = (int(new_pixel_x), int(new_pixel_y), int(new_pixel_z))
+            rgb_array[y, x] = new_pixel
+
+color = np.array([1.0, 0.0, 0.0])
+# draw_gaussian_splat(400, 400, 25, color, 0.8)
+# img.save("Gaussian_Test.png")
+
+world_points = [[0, 0, 0.5], [0, 0, 0.0], [0, 0, -0.5]]
+world_radius = 0.1
+
+for wp in world_points:
+    u, v, depth = projection(wp, camera_object)
+    sigma_p = camera_object.fx * world_radius / depth
+    print(depth, sigma_p)
+    draw_gaussian_splat(camera_object.width, camera_object.height, u, v, sigma_p, color, 0.8)
+
+output = Image.fromarray(np.clip(rgb_array * 255, 0, 255).astype(np.uint8))
+output.save("Adjusted_depth.png")
 
