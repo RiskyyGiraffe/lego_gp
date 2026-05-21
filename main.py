@@ -106,3 +106,13 @@ for wp in world_points:
 output = Image.fromarray(np.clip(rgb_array * 255, 0, 255).astype(np.uint8))
 output.save("Adjusted_depth.png")
 
+gaussians = [[[0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8],
+            [[0.5, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8],
+            [[-0.5, 0, 0], 0.10, np.array([0.0, 0.0, 1.0]), 0.8],
+            [[0, 0.5, 0], 0.10, np.array([0.0, 1.0, 1.0]), 0.8],
+            [[0, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8]]
+
+rgb_gaus = np.zeros((camera_object.height, camera_object.width, 3))
+print(rgb_gaus[0])
+
+
