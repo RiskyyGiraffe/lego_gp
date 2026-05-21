@@ -62,19 +62,19 @@ for test in test_array:
 
 # img.save("test_draw.png")
 
-def draw_guassian_splat(image, u, v, sigmas, color, opacity):
-    pixel_x, pixel_y = image.size
-    dx = (pixel_x / 2) - u
-    dy = (pixel_y / 2) - v
-    sigma_pixels = 25 * sigmas
+def alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
+    dx = pixel_x - u
+    dy = pixel_y - v
     distance_squared = dx ** 2 + dy ** 2
     weight = np.exp(-0.5 * distance_squared / sigma_pixels ** 2)
-    alpha = opacity * weight
+    alpha = weight * opacity
     return alpha
 
-print(draw_guassian_splat(img, 400, 400, 2, "red", 0.8))
+print(alpha_at_pixel(475, 400, 400, 400, 25, 0.8))
 
+img_rgb = img.convert('RGB')
+rgb_array = np.array(img_rgb)
+frgb_array = np.array()
 
-# img_rgb = img.convert('RGB')
-# rgb_array = np.array(img_rgb)
+print(rgb_array[10, 10])
 
