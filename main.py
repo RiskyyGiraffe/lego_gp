@@ -108,25 +108,34 @@ color = np.array([1.0, 0.0, 0.0])
 # output = Image.fromarray(np.clip(rgb_array * 255, 0, 255).astype(np.uint8))
 # output.save("Adjusted_depth.png")
 
-gaussians = [[[0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8],
-            [[0.5, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8],
-            [[-0.5, 0, 0], 0.10, np.array([0.0, 0.0, 1.0]), 0.8],
-            [[0, 0.5, 0], 0.10, np.array([0.0, 1.0, 1.0]), 0.8],
-            [[0, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8]]
+class Gaussian:
+    def __init__ (self, wp, radius, color, opacity):
+        self.wp = wp
+        self.raius = radius
+        self.color = color
+        self.opacity = opacity
+
+gaussians = [Gaussian([0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
+            Gaussian([0.5, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8),
+            Gaussian([-0.5, 0, 0], 0.10, np.array([0.0, 0.0, 1.0]), 0.8),
+            Gaussian([0, 0.5, 0], 0.10, np.array([1.0, 1.0, 0.0]), 0.8),
+            Gaussian([0, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8)]
 
 rgb_gaus = np.zeros((camera_object.height, camera_object.width, 3))
+sort_rgb = []
 
 for gaussian in gaussians:
-    wp = gaussian[0]
-    radius = gaussian[1]
-    color = gaussian[2]
-    opacity  = gaussian[3]
+    wp = gaussian.wp
+    radius = gaussian.raius
+    color = gaussian.color
+    opacity  = gaussian.opacity
     u, v, depth = projection(wp, camera_object)
     if depth <= 0:
         continue
 
     sigma_p = camera_object.fx * radius / depth
     draw_gaussian_splat(rgb_gaus, camera_object.width, camera_object.height, u, v, sigma_p, color, opacity)
+    # i = 0
 
 output = Image.fromarray(np.clip(rgb_gaus * 255, 0, 255).astype(np.uint8))
 output.save("BlankSpace.png")
