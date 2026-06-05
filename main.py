@@ -34,9 +34,8 @@ def projection(p_world_point, camera: Camera):
     wp = np.array(p_world_point)
     world_point = np.append(wp, 1.0)
     p_world = np.array(world_point)
-    T_w2c = camera.w2c
     focal = camera.fx
-    p_camera = T_w2c @ p_world
+    p_camera = camera.w2c @ p_world
     x_cam, y_cam, z_cam, _ = p_camera
     depth = -z_cam
     u = focal * (x_cam / depth) + camera.width / 2
@@ -73,7 +72,7 @@ def alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
 img_rgb = img.convert('RGB')
 rgb_array = np.array(img_rgb).astype(float) / 255.0
 
-def draw_gaussian_splat(width, height, u, v, sigma_pixels, color, opacity):
+def draw_gaussian_splat(pixel_array, width, height, u, v, sigma_pixels, color, opacity):
     radius = 3 * sigma_pixels
     x_min = max(0, int(u - radius))
     x_max = min(width - 1, int(u + radius))
@@ -83,28 +82,31 @@ def draw_gaussian_splat(width, height, u, v, sigma_pixels, color, opacity):
     # pixels = img.load()
     for x in range(x_min, x_max + 1):
         for y in range(y_min, y_max + 1):
-            old_pixel = rgb_array[y, x]
+            old_pixel = pixel_array[y, x]
             alpha = alpha_at_pixel(x, y, u, v, sigma_pixels, opacity)
             # new_pixel_x, new_pixel_y, new_pixel_z = (old_pixel * (1 - alpha) + color * alpha) * 255.0
             new_pixel = old_pixel * (1 - alpha) + color * alpha
             # rgb_array[y, x] = (int(new_pixel_x), int(new_pixel_y), int(new_pixel_z))
-            rgb_array[y, x] = new_pixel
+            pixel_array[y, x] = new_pixel
 
 color = np.array([1.0, 0.0, 0.0])
-# draw_gaussian_splat(400, 400, 25, color, 0.8)
+# draw_gaussian_splat(rgb_array, 400, 400, 25, color, 0.8)
 # img.save("Gaussian_Test.png")
 
-world_points = [[0, 0, 0.5], [0, 0, 0.0], [0, 0, -0.5]]
-world_radius = 0.1
-
-for wp in world_points:
-    u, v, depth = projection(wp, camera_object)
-    sigma_p = camera_object.fx * world_radius / depth
-    print(depth, sigma_p)
-    draw_gaussian_splat(camera_object.width, camera_object.height, u, v, sigma_p, color, 0.8)
-
-output = Image.fromarray(np.clip(rgb_array * 255, 0, 255).astype(np.uint8))
-output.save("Adjusted_depth.png")
+# world_points = [[0, 0, 0.5], [0, 0, 0.0], [0, 0, -0.5]]
+# world_radius = 0.1
+#
+# for wp in world_points:
+#     u, v, depth = projection(wp, camera_object)
+#     if depth <= 0:
+#         continue
+#
+#     sigma_p = camera_object.fx * world_radius / depth
+#     print(depth, sigma_p)
+#     draw_gaussian_splat(rgb_array, camera_object.width, camera_object.height, u, v, sigma_p, color, 0.8)
+#
+# output = Image.fromarray(np.clip(rgb_array * 255, 0, 255).astype(np.uint8))
+# output.save("Adjusted_depth.png")
 
 gaussians = [[[0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8],
             [[0.5, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8],
@@ -113,6 +115,21 @@ gaussians = [[[0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8],
             [[0, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8]]
 
 rgb_gaus = np.zeros((camera_object.height, camera_object.width, 3))
-print(rgb_gaus[0])
+
+for gaussian in gaussians:
+    wp = gaussian[0]
+    radius = gaussian[1]
+    color = gaussian[2]
+    opacity  = gaussian[3]
+    u, v, depth = projection(wp, camera_object)
+    if depth <= 0:
+        continue
+
+    sigma_p = camera_object.fx * radius / depth
+    draw_gaussian_splat(rgb_gaus, camera_object.width, camera_object.height, u, v, sigma_p, color, opacity)
+
+output = Image.fromarray(np.clip(rgb_gaus * 255, 0, 255).astype(np.uint8))
+output.save("BlankSpace.png")
+    
 
 
