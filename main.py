@@ -69,8 +69,9 @@ def alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
     alpha = weight * opacity
     return alpha
 
-img_rgb = img.convert('RGB')
-rgb_array = np.array(img_rgb).astype(float) / 255.0
+# Previously converting image to rgb array
+# img_rgb = img.convert('RGB')
+# rgb_array = np.array(img_rgb).astype(float) / 255.0
 
 # Define Draw Function
 def draw_gaussian_splat(pixel_array, width, height, u, v, sigma_pixels, color, opacity):
@@ -93,7 +94,7 @@ def draw_gaussian_splat(pixel_array, width, height, u, v, sigma_pixels, color, o
 # Define Render Function
 def render_scene(camera: Camera, gaussians: list[Gaussian]):
 
-    rgb_gaus = np.zeros((camera_object.height, camera_object.width, 3))
+    rgb_gaus = np.zeros((camera.height, camera.width, 3))
     sort_rgb = []
 
     for gaussian in gaussians:
@@ -101,13 +102,13 @@ def render_scene(camera: Camera, gaussians: list[Gaussian]):
         radius = gaussian.radius
         color = gaussian.color
         opacity  = gaussian.opacity
-        u, v, depth = projection(wp, camera_object)
+        u, v, depth = projection(wp, camera)
 
         if depth <= 0:
             continue
 
-        sigma_p = camera_object.fx * radius / depth
-        splat = Splat(camera_object.width, camera_object.height, u, v, depth, sigma_p, gaussian.color, gaussian.opacity)
+        sigma_p = camera.fx * radius / depth
+        splat = Splat(camera.width, camera.height, u, v, depth, sigma_p, gaussian.color, gaussian.opacity)
 
         sort_rgb.append(splat)
 
