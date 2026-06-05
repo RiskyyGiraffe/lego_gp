@@ -111,7 +111,18 @@ color = np.array([1.0, 0.0, 0.0])
 class Gaussian:
     def __init__ (self, wp, radius, color, opacity):
         self.wp = wp
-        self.raius = radius
+        self.radius = radius
+        self.color = color
+        self.opacity = opacity
+
+class Splat:
+    def __init__ (self, width, height, u, v, depth, sigma_p, color, opacity):
+        self.width = width
+        self.height = height
+        self.u = u
+        self.v = v
+        self.depth = depth
+        self.sigma_p = sigma_p
         self.color = color
         self.opacity = opacity
 
@@ -126,7 +137,7 @@ sort_rgb = []
 
 for gaussian in gaussians:
     wp = gaussian.wp
-    radius = gaussian.raius
+    radius = gaussian.radius
     color = gaussian.color
     opacity  = gaussian.opacity
     u, v, depth = projection(wp, camera_object)
@@ -134,11 +145,17 @@ for gaussian in gaussians:
         continue
 
     sigma_p = camera_object.fx * radius / depth
-    draw_gaussian_splat(rgb_gaus, camera_object.width, camera_object.height, u, v, sigma_p, color, opacity)
-    # i = 0
+    splat = Splat(camera_object.width, camera_object.height, u, v, depth, sigma_p, gaussian.color, gaussian.opacity)
+
+    sort_rgb.append(splat)
+
+sort_rgb.sort(key=lambda splat: splat.depth, reverse=True)
+for d in sort_rgb:
+    print(d.depth)
+
+for splat in sort_rgb:
+    draw_gaussian_splat(rgb_gaus, splat.width, splat.height, splat.u, splat.v, splat.sigma_p, splat.color, splat.opacity)
 
 output = Image.fromarray(np.clip(rgb_gaus * 255, 0, 255).astype(np.uint8))
-output.save("BlankSpace.png")
-    
-
+output.save("BlankSpaceDepth.png")
 
