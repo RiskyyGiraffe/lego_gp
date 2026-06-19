@@ -69,10 +69,6 @@ def alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
     alpha = weight * opacity
     return alpha
 
-# Previously converting image to rgb array
-# img_rgb = img.convert('RGB')
-# rgb_array = np.array(img_rgb).astype(float) / 255.0
-
 # Define Draw Function
 def draw_gaussian_splat(pixel_array, width, height, u, v, sigma_pixels, color, opacity):
     radius = 3 * sigma_pixels
@@ -125,8 +121,17 @@ gaussians_tests =  [Gaussian([0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
                     Gaussian([0, 0.5, 0], 0.10, np.array([1.0, 1.0, 0.0]), 0.8),
                     Gaussian([0, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8)]
 
-pixel_array = render_scene(camera_object, gaussians_tests)
+predicted = render_scene(camera_object, gaussians_tests)
+img_rgb = img.convert('RGB')
+target = np.array(img_rgb).astype(float) / 255.0
 
-output = Image.fromarray(np.clip(pixel_array * 255, 0, 255).astype(np.uint8))
+def image_loss(predicted, target):
+    if predicted.shape != target.shape:
+        raise Exception("Target shape does not match predicted.")
+    return np.mean(np.abs(predicted - target))
+
+print(image_loss(predicted, target))
+
+output = Image.fromarray(np.clip(predicted * 255, 0, 255).astype(np.uint8))
 output.save("BlankSpaceFunc.png")
 
