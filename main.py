@@ -2,6 +2,7 @@ import json
 from PIL import Image, ImageDraw
 import numpy as np
 import os
+import torch
 
 # Load the data
 with open('lego_data/transforms_train.json', 'r') as f:
@@ -115,7 +116,7 @@ def render_scene(camera: Camera, gaussians: list[Gaussian]):
 
     return rgb_gaus
 
-gaussians_tests =  [Gaussian([0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
+gaussians_tests =  [Gaussian([0.0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
                     Gaussian([0.5, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8),
                     Gaussian([-0.5, 0, 0], 0.10, np.array([0.0, 0.0, 1.0]), 0.8),
                     Gaussian([0, 0.5, 0], 0.10, np.array([1.0, 1.0, 0.0]), 0.8),
@@ -130,8 +131,51 @@ def image_loss(predicted, target):
         raise Exception("Target shape does not match predicted.")
     return np.mean(np.abs(predicted - target))
 
+def loss_with_center(x):
+    gaussians =  [Gaussian([x, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
+                    Gaussian([x, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8),
+                    Gaussian([x, 0, 0], 0.10, np.array([0.0, 0.0, 1.0]), 0.8),
+                    Gaussian([x, 0.5, 0], 0.10, np.array([1.0, 1.0, 0.0]), 0.8),
+                    Gaussian([x, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8)]
+    predicted = render_scene(camera_object, gaussians)
+    return image_loss(predicted, target)
+
 print(image_loss(predicted, target))
 
 output = Image.fromarray(np.clip(predicted * 255, 0, 255).astype(np.uint8))
 output.save("BlankSpaceFunc.png")
+
+x = 0
+epsilon = 0.01
+learning_rate = 1.0
+
+# for step in range(20):
+#     loss_plus = loss_with_center(x + epsilon)
+#     loss_minus = loss_with_center(x - epsilon)
+#     slope = (loss_plus - loss_minus) / (2 * epsilon)
+#     x = x - learning_rate * slope
+#     current_loss = loss_with_center(x)
+#     print(step, x, current_loss, slope)
+
+
+color_raw = torch.tensor([0.0, 0.0, 0.0], requires_grad=True)
+optimizer = torch.optim.Adam([color_raw], lr=0.1)
+
+for step in range(50):
+    color = torch.sigmoid(color_raw)
+
+    st_gaus = [Gaussian([0.0, 0.0, 0.0], 0.10, color, opacity=0.8)]
+    predicted = render_scene(camera_object, st_gaus)
+
+    loss = torch.mean(torch.abs(predicted - target))
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    print(step, loss.item(), color.detch().numpy())
+
+
+
+
 
