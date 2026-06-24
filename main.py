@@ -78,6 +78,7 @@ def draw_gaussian_splat(pixel_array, width, height, u, v, sigma_pixels, color, o
 
     y_min = max(0, int(v - radius))
     y_max = min(height - 1, int(v + radius))
+
     # pixels = img.load()
     for x in range(x_min, x_max + 1):
         for y in range(y_min, y_max + 1):
@@ -125,6 +126,7 @@ gaussians_tests =  [Gaussian([0.0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
 predicted = render_scene(camera_object, gaussians_tests)
 img_rgb = img.convert('RGB')
 target = np.array(img_rgb).astype(float) / 255.0
+target_torch = torch.tensor(target, dtype=torch.float32)
 
 def image_loss(predicted, target):
     if predicted.shape != target.shape:
@@ -157,25 +159,48 @@ learning_rate = 1.0
 #     current_loss = loss_with_center(x)
 #     print(step, x, current_loss, slope)
 
-
 color_raw = torch.tensor([0.0, 0.0, 0.0], requires_grad=True)
 optimizer = torch.optim.Adam([color_raw], lr=0.1)
+
+def render_one_splat(camera: Camera, u, v, sigma_p, color, opacity):
+    image = torch.zeros((camera.height, camera.width, 3), dtype=torch.float32)
+
+    radius = 3 * sigma_p
+    x_min = max(0, int(u - radius))
+    x_max = min(camera.width - 1, int(u + radius))
+    y_min = max(0, int(v - radius))
+    y_max = min(camera.height - 1, int(v + radius))
+
+    xs = torch.arange(x_min, x_max + 1, dtype=torch.float32)
+    ys = torch.arange(y_min, y_max + 1, dtype=torch.float32)
+    yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+
+    dx = xx - float(u)
+    dy = yy - float(v)
+
+    distance_squared = dx ** 2 + dy ** 2
+    weight = torch.exp(-0.5 * distance_squared / (sigma_p ** 2))
+    alpha = opacity * weight
+
+    patch = alpha[..., None] * color[None, None, :]
+    image[y_min:y_max + 1, x_min:x_max + 1, :] = patch
+
+    return image
+
+single_u, single_v, single_depth = projection([0.0, 0.0, 0.0], camera_object)
+single_sigma_p = camera_object.fx * 0.10 / single_depth
 
 for step in range(50):
     color = torch.sigmoid(color_raw)
 
     st_gaus = [Gaussian([0.0, 0.0, 0.0], 0.10, color, opacity=0.8)]
-    predicted = render_scene(camera_object, st_gaus)
+    predicted = render_one_splat(camera_object, single_u, single_v, single_sigma_p, color, opacity=0.8)
 
-    loss = torch.mean(torch.abs(predicted - target))
+    loss = torch.mean(torch.abs(predicted - target_torch))
 
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
 
-    print(step, loss.item(), color.detch().numpy())
-
-
-
-
+    print(step, loss.item(), color.detach().numpy())
 
