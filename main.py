@@ -15,44 +15,88 @@ fp = f"./lego_data/{frame_fp}.png"
 img = Image.open(fp)
 
 # Define the Class Objects
-class Camera:
+class CameraTorch:
     def __init__(self, img, camera_angle_x, camera_to_world):
         self.img = img
-        self.camera_angle_x = camera_angle_x
+        self.camera_angle_x = torch.tensor(camera_angle_x)
         self.camera_to_world = camera_to_world
         self.width, self.height = img.size
-        self.fx = 0.5 * self.width / np.tan(0.5 * camera_angle_x)
+        self.fx = 0.5 * self.width / torch.tan(torch.tensor(0.5) * camera_angle_x)
         self.fy = self.fx
         self.cx, self.cy = self.width / 2, self.height / 2
-        self.c2w = np.array(self.camera_to_world, dtype=np.float64)
-        self.w2c = np.linalg.inv(self.c2w)
+        self.c2w = torch.tensor(self.camera_to_world, dtype=torch.float32)
+        self.w2c = torch.linalg.inv(self.c2w)
 
-class Gaussian:
-    def __init__ (self, wp, radius, color, opacity):
-        self.wp = wp
-        self.radius = radius
-        self.color = color
-        self.opacity = opacity
+class GaussianCloud:
+    def __init__(self, init_positions, init_radius=0.10):
+        self.positions = torch.tensor(init_positions, dtype=torch.float32, requires_grad=True)
+        self.colors_raw = torch.zeros((len(init_positions), 3), dtype=torch.float32, requires_grad=True)
+        self.radii_raw = torch.full(
+            (len(init_positions),),
+            float(np.log(init_radius)),
+            dtype=torch.float32,
+            requires_grad=True
+        )
+        self.opacity = 0.8
 
-class Splat:
-    def __init__ (self, width, height, u, v, depth, sigma_p, color, opacity):
-        self.width = width
-        self.height = height
-        self.u = u
-        self.v = v
-        self.depth = depth
-        self.sigma_p = sigma_p
-        self.color = color
-        self.opacity = opacity
+    def parameters(self):
+        return [self.positions, self.colors_raw, self.radii_raw]
 
-# Instantiate Camera Object
-camera_object = Camera(img, camera_angle_x, camera_to_world)
+def torch_alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
+    dx = pixel_x - u
+    dy = pixel_y - v
+    distance_squared = dx ** 2 + dy ** 2
+    weight = torch.exp(-0.5 * distance_squared / sigma_pixels ** 2)
+    alpha = weight * opacity
+    return alpha
 
-# Define Projection Function
-def projection(p_world_point, camera: Camera):
-    wp = np.array(p_world_point)
-    world_point = np.append(wp, 1.0)
-    p_world = np.array(world_point)
+def torch_render_cloud_splat(camera: CameraTorch, cloud: GaussianCloud, i):
+    position = cloud.positions[i]
+    u, v, depth = projection_torch(position, camera)
+    radius = torch.exp(cloud.radii_raw[i])
+    sigma_p = camera.fx * radius / depth
+    color = torch.sigmoid(cloud.colors_raw[i])
+    opacity = cloud.opacity
+
+    ys = torch.arange(0, camera.height, dtype=torch.float32)
+    xs = torch.arange(0, camera.width, dtype=torch.float32)
+    yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+
+    dx = xx - u
+    dy = yy - v
+
+    dist2 = dx ** 2 + dy ** 2
+    weight = torch.exp(-0.5 * dist2 / (sigma_p ** 2))
+    alpha = opacity * weight
+
+    splat_img = alpha[..., None] * color[None, None, :]
+
+    return splat_img
+
+
+def torch_scene_cloud(camera, cloud):
+    image = torch.zeros((camera.height, camera.width, 3), dtype=torch.float32)
+
+    N = cloud.positions.shape[0]
+
+    for i in range(N):
+        splat_img = torch_render_cloud_splat(camera, cloud, i)
+        image = image + splat_img
+
+    image = torch.clamp(image, 0.0, 1.0)
+    return image
+
+torch_camera_object = CameraTorch(img, camera_angle_x, camera_to_world)
+
+N = 20
+init_positions = torch.randn((N, 3)) * 0.25
+init_positions[:, 2] *= 0.25
+init_positions = init_positions.tolist()
+
+
+def projection_torch(p_world_point, camera: CameraTorch):
+    one = torch.ones(1, dtype=p_world_point.dtype)
+    p_world = torch.cat([p_world_point, one], dim=0)
     focal = camera.fx
     p_camera = camera.w2c @ p_world
     x_cam, y_cam, z_cam, _ = p_camera
@@ -61,146 +105,31 @@ def projection(p_world_point, camera: Camera):
     v = camera.height / 2 -focal * (y_cam / depth)
     return u, v, depth
 
-# Define Alpha Function
-def alpha_at_pixel(pixel_x, pixel_y, u, v, sigma_pixels, opacity):
-    dx = pixel_x - u
-    dy = pixel_y - v
-    distance_squared = dx ** 2 + dy ** 2
-    weight = np.exp(-0.5 * distance_squared / sigma_pixels ** 2)
-    alpha = weight * opacity
-    return alpha
+cloud = GaussianCloud(init_positions)
+optimizer = torch.optim.Adam(cloud.parameters(), lr=0.01)
 
-# Define Draw Function
-def draw_gaussian_splat(pixel_array, width, height, u, v, sigma_pixels, color, opacity):
-    radius = 3 * sigma_pixels
-    x_min = max(0, int(u - radius))
-    x_max = min(width - 1, int(u + radius))
-
-    y_min = max(0, int(v - radius))
-    y_max = min(height - 1, int(v + radius))
-
-    # pixels = img.load()
-    for x in range(x_min, x_max + 1):
-        for y in range(y_min, y_max + 1):
-            old_pixel = pixel_array[y, x]
-            alpha = alpha_at_pixel(x, y, u, v, sigma_pixels, opacity)
-            # new_pixel_x, new_pixel_y, new_pixel_z = (old_pixel * (1 - alpha) + color * alpha) * 255.0
-            new_pixel = old_pixel * (1 - alpha) + color * alpha
-            # rgb_array[y, x] = (int(new_pixel_x), int(new_pixel_y), int(new_pixel_z))
-            pixel_array[y, x] = new_pixel
-
-# Define Render Function
-def render_scene(camera: Camera, gaussians: list[Gaussian]):
-
-    rgb_gaus = np.zeros((camera.height, camera.width, 3))
-    sort_rgb = []
-
-    for gaussian in gaussians:
-        wp = gaussian.wp
-        radius = gaussian.radius
-        color = gaussian.color
-        opacity  = gaussian.opacity
-        u, v, depth = projection(wp, camera)
-
-        if depth <= 0:
-            continue
-
-        sigma_p = camera.fx * radius / depth
-        splat = Splat(camera.width, camera.height, u, v, depth, sigma_p, gaussian.color, gaussian.opacity)
-
-        sort_rgb.append(splat)
-
-    sort_rgb.sort(key=lambda splat: splat.depth, reverse=True)
-
-    for splat in sort_rgb:
-        draw_gaussian_splat(rgb_gaus, splat.width, splat.height, splat.u, splat.v, splat.sigma_p, splat.color, splat.opacity)
-
-    return rgb_gaus
-
-gaussians_tests =  [Gaussian([0.0, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
-                    Gaussian([0.5, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8),
-                    Gaussian([-0.5, 0, 0], 0.10, np.array([0.0, 0.0, 1.0]), 0.8),
-                    Gaussian([0, 0.5, 0], 0.10, np.array([1.0, 1.0, 0.0]), 0.8),
-                    Gaussian([0, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8)]
-
-predicted = render_scene(camera_object, gaussians_tests)
-img_rgb = img.convert('RGB')
+img_rgb = img.convert("RGB")
 target = np.array(img_rgb).astype(float) / 255.0
 target_torch = torch.tensor(target, dtype=torch.float32)
 
-def image_loss(predicted, target):
-    if predicted.shape != target.shape:
-        raise Exception("Target shape does not match predicted.")
-    return np.mean(np.abs(predicted - target))
-
-def loss_with_center(x):
-    gaussians =  [Gaussian([x, 0, 0], 0.10, np.array([1.0, 0.0, 0.0]), 0.8),
-                    Gaussian([x, 0, 0], 0.10, np.array([0.0, 1.0, 0.0]), 0.8),
-                    Gaussian([x, 0, 0], 0.10, np.array([0.0, 0.0, 1.0]), 0.8),
-                    Gaussian([x, 0.5, 0], 0.10, np.array([1.0, 1.0, 0.0]), 0.8),
-                    Gaussian([x, 0, 0.5], 0.10, np.array([1.0, 0.0, 1.0]), 0.8)]
-    predicted = render_scene(camera_object, gaussians)
-    return image_loss(predicted, target)
-
-print(image_loss(predicted, target))
-
-output = Image.fromarray(np.clip(predicted * 255, 0, 255).astype(np.uint8))
-output.save("BlankSpaceFunc.png")
-
-x = 0
-epsilon = 0.01
-learning_rate = 1.0
-
-# for step in range(20):
-#     loss_plus = loss_with_center(x + epsilon)
-#     loss_minus = loss_with_center(x - epsilon)
-#     slope = (loss_plus - loss_minus) / (2 * epsilon)
-#     x = x - learning_rate * slope
-#     current_loss = loss_with_center(x)
-#     print(step, x, current_loss, slope)
-
-color_raw = torch.tensor([0.0, 0.0, 0.0], requires_grad=True)
-optimizer = torch.optim.Adam([color_raw], lr=0.1)
-
-def render_one_splat(camera: Camera, u, v, sigma_p, color, opacity):
-    image = torch.zeros((camera.height, camera.width, 3), dtype=torch.float32)
-
-    radius = 3 * sigma_p
-    x_min = max(0, int(u - radius))
-    x_max = min(camera.width - 1, int(u + radius))
-    y_min = max(0, int(v - radius))
-    y_max = min(camera.height - 1, int(v + radius))
-
-    xs = torch.arange(x_min, x_max + 1, dtype=torch.float32)
-    ys = torch.arange(y_min, y_max + 1, dtype=torch.float32)
-    yy, xx = torch.meshgrid(ys, xs, indexing="ij")
-
-    dx = xx - float(u)
-    dy = yy - float(v)
-
-    distance_squared = dx ** 2 + dy ** 2
-    weight = torch.exp(-0.5 * distance_squared / (sigma_p ** 2))
-    alpha = opacity * weight
-
-    patch = alpha[..., None] * color[None, None, :]
-    image[y_min:y_max + 1, x_min:x_max + 1, :] = patch
-
-    return image
-
-single_u, single_v, single_depth = projection([0.0, 0.0, 0.0], camera_object)
-single_sigma_p = camera_object.fx * 0.10 / single_depth
-
-for step in range(50):
-    color = torch.sigmoid(color_raw)
-
-    st_gaus = [Gaussian([0.0, 0.0, 0.0], 0.10, color, opacity=0.8)]
-    predicted = render_one_splat(camera_object, single_u, single_v, single_sigma_p, color, opacity=0.8)
-
+for step in range(201):
+    predicted = torch_scene_cloud(torch_camera_object, cloud)
     loss = torch.mean(torch.abs(predicted - target_torch))
 
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
 
-    print(step, loss.item(), color.detach().numpy())
+    if step % 50 == 0:
+        print(step, loss.item())
+        print("positions:", cloud.positions.detach())
+        print("colors:", torch.sigmoid(cloud.colors_raw).detach())
+        print("radii:", torch.exp(cloud.radii_raw).detach())
 
+with torch.no_grad():
+    predicted = torch_scene_cloud(torch_camera_object, cloud)
+
+output = Image.fromarray(
+    np.clip(predicted.detach().numpy() * 255, 0, 255).astype(np.uint8)
+)
+output.save("cloud_trained_3.png")
